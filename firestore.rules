@@ -1,0 +1,66 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if user owns the document
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    // Helper function to check if user is a collaborator
+    function isCollaborator(collaborators) {
+      return request.auth.uid in collaborators;
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+    
+    // Notes collection
+    match /notes/{noteId} {
+      allow read: if isAuthenticated() && 
+                     (isOwner(resource.data.ownerId) || 
+                      isCollaborator(resource.data.collaborators));
+      
+      allow create: if isAuthenticated() && 
+                       isOwner(request.resource.data.ownerId);
+      
+      allow update: if isAuthenticated() && 
+                       (isOwner(resource.data.ownerId) || 
+                        isCollaborator(resource.data.collaborators));
+      
+      allow delete: if isAuthenticated() && 
+                       isOwner(resource.data.ownerId);
+      
+      // Subcollections for revisions and comments
+      match /revisions/{revisionId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+      
+      match /comments/{commentId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+    }
+    
+    // Workspaces collection
+    match /workspaces/{workspaceId} {
+      allow read: if isAuthenticated() && 
+                     request.auth.uid in resource.data.members;
+      
+      allow create: if isAuthenticated();
+      
+      allow update, delete: if isAuthenticated() && 
+                               request.auth.uid in resource.data.members;
+    }
+  }
+}

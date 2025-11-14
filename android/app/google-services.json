@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "641720600596",
+    "project_id": "collab-notes-e7634",
+    "storage_bucket": "collab-notes-e7634.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:641720600596:android:ea9cbd8cda79496e9cff01",
+        "android_client_info": {
+          "package_name": "com.hostspica.collabnotes"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "641720600596-tid55hi3uj04ns5cntp3j3m1ef2e8gog.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAUtwDOutElimXPCRyWVdExHFf0mLZi-1o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "641720600596-tid55hi3uj04ns5cntp3j3m1ef2e8gog.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
