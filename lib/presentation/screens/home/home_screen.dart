@@ -1,11 +1,50 @@
+// ignore_for_file: deprecated_member_use, unused_element
+
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:iconsax/iconsax.dart';
 import '../../bloc/notes/notes_bloc.dart';
 import '../../bloc/auth/auth_bloc.dart';
-import '../notes/note_editor_screen.dart';
+import '../notes/rich_note_editor_screen.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../data/models/note_model.dart';
+import 'archived_notes_screen.dart';
+
+// Helper function to extract plain text from Quill JSON
+String _extractPlainText(String content) {
+  if (content.isEmpty) return '';
+
+  try {
+    // Try to parse as Quill JSON
+    final json = jsonDecode(content);
+    if (json is List) {
+      final buffer = StringBuffer();
+      for (final op in json) {
+        if (op is Map && op.containsKey('insert')) {
+          buffer.write(op['insert']);
+        }
+      }
+      return buffer.toString().trim();
+    }
+    // If it's a map with ops
+    if (json is Map && json.containsKey('ops')) {
+      final buffer = StringBuffer();
+      for (final op in json['ops']) {
+        if (op is Map && op.containsKey('insert')) {
+          buffer.write(op['insert']);
+        }
+      }
+      return buffer.toString().trim();
+    }
+  } catch (e) {
+    // If parsing fails, return as-is (old plain text format)
+    return content;
+  }
+
+  return content;
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -14,14 +53,26 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
   late AnimationController _fabController;
   bool _isGridView = false;
+  bool _isSearching = false;
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     context.read<NotesBloc>().add(NotesLoadRequested());
+    
+    // Only start realtime sync for authenticated (non-guest) users
+    final authState = context.read<AuthBloc>().state;
+    final isGuest = authState is AuthAuthenticated && authState.isGuest;
+    if (!isGuest) {
+      context.read<NotesBloc>().add(NotesStartRealtimeSync());
+    }
+    
     _fabController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -31,6 +82,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void dispose() {
     _fabController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -49,8 +101,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             physics: const BouncingScrollPhysics(),
             slivers: [
               _buildModernAppBar(context, isGuest, userName),
+              if (_isSearching) _buildSearchBar(),
               if (isGuest) _buildGuestBanner(context),
-              _buildQuickStats(),
+              // _buildQuickStats(),
               _buildNotesList(),
             ],
           ),
@@ -61,7 +114,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   SliverAppBar _buildModernAppBar(
-      BuildContext context, bool isGuest, String userName) {
+    BuildContext context,
+    bool isGuest,
+    String userName,
+  ) {
     return SliverAppBar(
       expandedHeight: 120,
       floating: false,
@@ -70,9 +126,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       elevation: 0,
       flexibleSpace: FlexibleSpaceBar(
         background: Container(
-          decoration: const BoxDecoration(
-            gradient: AppTheme.primaryGradient,
-          ),
+          decoration: const BoxDecoration(gradient: AppTheme.primaryGradient),
           padding: const EdgeInsets.only(left: 20, right: 20, bottom: 16),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.end,
@@ -103,6 +157,21 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       actions: [
         IconButton(
           icon: Icon(
+            _isSearching ? Iconsax.close_circle : Iconsax.search_normal_1,
+            color: Colors.white,
+          ),
+          onPressed: () {
+            setState(() {
+              _isSearching = !_isSearching;
+              if (!_isSearching) {
+                _searchQuery = '';
+                _searchController.clear();
+              }
+            });
+          },
+        ),
+        IconButton(
+          icon: Icon(
             _isGridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
             color: Colors.white,
           ),
@@ -123,38 +192,113 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         PopupMenuButton(
           icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(12),
           ),
+          elevation: 8,
           offset: const Offset(0, 50),
           itemBuilder: (context) => [
             if (isGuest)
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: 'signin',
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 child: Row(
                   children: [
-                    Icon(Icons.cloud_upload_rounded, size: 20),
-                    SizedBox(width: 12),
-                    Text('Sign in to Sync'),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        Icons.cloud_upload_rounded,
+                        size: 18,
+                        color: AppTheme.primaryColor,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Text(
+                      'Sign in to Sync',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                    ),
                   ],
                 ),
               ),
-            const PopupMenuItem(
-              value: 'settings',
+            PopupMenuItem(
+              value: 'archived',
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
                 children: [
-                  Icon(Icons.settings_rounded, size: 20),
-                  SizedBox(width: 12),
-                  Text('Settings'),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Iconsax.archive,
+                      size: 18,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Archived Notes',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                  ),
                 ],
               ),
             ),
-            const PopupMenuItem(
-              value: 'logout',
+            PopupMenuItem(
+              value: 'settings',
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
                 children: [
-                  Icon(Icons.logout_rounded, size: 20),
-                  SizedBox(width: 12),
-                  Text('Logout'),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Icons.settings_rounded,
+                      size: 18,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Settings',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
+            ),
+            PopupMenuItem(
+              value: 'logout',
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.logout_rounded,
+                      size: 18,
+                      color: Colors.red,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Logout',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.red,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -164,8 +308,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               _showLogoutDialog(context);
             } else if (value == 'signin') {
               context.read<AuthBloc>().add(AuthSignInWithGoogleRequested());
+            } else if (value == 'archived') {
+              _showArchivedNotes(context);
             } else if (value == 'settings') {
-              _showSnackBar(context, 'Settings coming soon!', AppTheme.primaryColor);
+              _showSnackBar(
+                context,
+                'Settings coming soon!',
+                AppTheme.primaryColor,
+              );
             }
           },
         ),
@@ -177,10 +327,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Widget _buildQuickStats() {
     return BlocBuilder<NotesBloc, NotesState>(
       builder: (context, state) {
-        if (state is! NotesLoaded) return const SliverToBoxAdapter(child: SizedBox());
+        if (state is! NotesLoaded)
+          return const SliverToBoxAdapter(child: SizedBox());
 
         final totalNotes = state.notes.length;
-        final pendingSync = state.notes.where((n) => n.syncStatus == 'pending').length;
         final today = state.notes.where((n) {
           final diff = DateTime.now().difference(n.updatedAt);
           return diff.inHours < 24;
@@ -208,15 +358,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     AppTheme.successColor,
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _buildStatCard(
-                    'Syncing',
-                    pendingSync.toString(),
-                    Iconsax.refresh_circle,
-                    AppTheme.warningColor,
-                  ),
-                ),
               ],
             ),
           ),
@@ -225,7 +366,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  Widget _buildStatCard(String label, String value, IconData icon, Color color) {
+  Widget _buildStatCard(
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -259,13 +405,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ),
           ),
           const SizedBox(height: 2),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.grey[600],
-            ),
-          ),
+          Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
         ],
       ),
     );
@@ -331,8 +471,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               style: TextButton.styleFrom(
                 backgroundColor: AppTheme.warningColor,
                 foregroundColor: Colors.white,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -348,7 +490,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Widget _buildNotesList() {
     return BlocBuilder<NotesBloc, NotesState>(
       builder: (context, state) {
-        if (state is NotesLoading) {
+        
+        if (state is NotesInitial || state is NotesLoading) {
           return const SliverFillRemaining(
             child: Center(child: CircularProgressIndicator()),
           );
@@ -360,11 +503,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Iconsax.danger,
-                    size: 64,
-                    color: AppTheme.errorColor,
-                  ),
+                  Icon(Iconsax.danger, size: 64, color: AppTheme.errorColor),
                   const SizedBox(height: 16),
                   Text(
                     'Oops! Something went wrong',
@@ -384,7 +523,37 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         }
 
         if (state is NotesLoaded) {
-          if (state.notes.isEmpty) {
+          // Filter out archived notes
+          var filteredNotes = state.notes.where((n) => !n.isArchived).toList();
+
+          // Apply search filter
+          if (_searchQuery.isNotEmpty) {
+            filteredNotes = filteredNotes.where((note) {
+              final titleMatch = note.title.toLowerCase().contains(
+                _searchQuery.toLowerCase(),
+              );
+              final contentMatch = _extractPlainText(
+                note.content,
+              ).toLowerCase().contains(_searchQuery.toLowerCase());
+              final tagsMatch = note.tags.any(
+                (tag) => tag.toLowerCase().contains(_searchQuery.toLowerCase()),
+              );
+              return titleMatch || contentMatch || tagsMatch;
+            }).toList();
+          }
+
+          // Sort: pinned first, then by date
+          final sortedNotes = List.from(filteredNotes)
+            ..sort((a, b) {
+              // Pinned notes first
+              if (a.isPinned != b.isPinned) {
+                return a.isPinned ? -1 : 1;
+              }
+              // Then by most recently updated
+              return b.updatedAt.compareTo(a.updatedAt);
+            });
+
+          if (sortedNotes.isEmpty) {
             return SliverFillRemaining(
               child: Center(
                 child: Column(
@@ -444,13 +613,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   crossAxisSpacing: 12,
                   mainAxisSpacing: 12,
                 ),
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final note = state.notes[index];
-                    return _buildGridNoteCard(context, note, index);
-                  },
-                  childCount: state.notes.length,
-                ),
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final note = sortedNotes[index];
+                  return _buildGridNoteCard(context, note, index);
+                }, childCount: sortedNotes.length),
               ),
             );
           }
@@ -458,13 +624,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           return SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
             sliver: SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final note = state.notes[index];
-                  return _buildNoteCard(context, note, index);
-                },
-                childCount: state.notes.length,
-              ),
+              delegate: SliverChildBuilderDelegate((context, index) {
+                final note = sortedNotes[index];
+                return _buildNoteCard(context, note, index);
+              }, childCount: sortedNotes.length),
             ),
           );
         }
@@ -475,28 +638,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildNoteCard(BuildContext context, note, int index) {
-    final colors = [
-      [const Color(0xFFFFE5E5), const Color(0xFFFFCCCC)],
-      [const Color(0xFFE5F3FF), const Color(0xFFCCE7FF)],
-      [const Color(0xFFFFF3E5), const Color(0xFFFFE7CC)],
-      [const Color(0xFFE5FFE5), const Color(0xFFCCFFCC)],
-      [const Color(0xFFF3E5FF), const Color(0xFFE7CCFF)],
-    ];
-    final colorPair = colors[index % colors.length];
-
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: colorPair,
-        ),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
+        border: note.color != null
+            ? Border.all(color: Color(int.parse(note.color!)), width: 2)
+            : null,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
             offset: const Offset(0, 2),
           ),
         ],
@@ -506,12 +659,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         child: InkWell(
           onTap: () {
             final notesBloc = context.read<NotesBloc>();
+            final authBloc = context.read<AuthBloc>();
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => BlocProvider.value(
-                  value: notesBloc,
-                  child: NoteEditorScreen(note: note),
+                builder: (context) => MultiBlocProvider(
+                  providers: [
+                    BlocProvider.value(value: notesBloc),
+                    BlocProvider.value(value: authBloc),
+                  ],
+                  child: RichNoteEditorScreen(note: note),
                 ),
               ),
             );
@@ -522,68 +679,193 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Title and actions row
                 Row(
                   children: [
+                    if (note.isPinned)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Icon(
+                          Icons.push_pin,
+                          size: 16,
+                          color: AppTheme.primaryColor,
+                        ),
+                      ),
                     Expanded(
                       child: Text(
                         note.title.isEmpty ? 'Untitled' : note.title,
                         style: const TextStyle(
                           fontSize: 18,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w600,
                           color: Colors.black87,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    if (note.syncStatus == 'pending')
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: AppTheme.warningColor.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(
-                          Iconsax.refresh_circle,
-                          size: 14,
-                          color: AppTheme.warningColor,
-                        ),
+                    if (note.isFavorite)
+                      Icon(
+                        Iconsax.star_15,
+                        size: 18,
+                        color: AppTheme.warningColor,
                       ),
-                    const SizedBox(width: 8),
-                    GestureDetector(
-                      onTap: () => _showDeleteDialog(context, note.id),
-                      child: Icon(
-                        Iconsax.trash,
+                    IconButton(
+                      icon: Icon(
+                        Iconsax.more,
                         size: 20,
-                        color: Colors.red[400],
+                        color: Colors.grey[600],
                       ),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: () => _showNoteOptions(context, note),
                     ),
                   ],
                 ),
-                if (note.checklistItems.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  _buildChecklistPreview(note.checklistItems),
+                // Tags
+                if (note.tags.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: note.tags.take(3).map((tag) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          tag,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: AppTheme.primaryColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
                 ],
+                // Content preview
                 if (note.content.isNotEmpty) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   Text(
-                    note.content,
-                    style: const TextStyle(
+                    _extractPlainText(note.content),
+                    style: TextStyle(
                       fontSize: 14,
-                      color: Colors.black54,
+                      color: Colors.grey[600],
                       height: 1.5,
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],
-                const SizedBox(height: 8),
-                Text(
-                  _formatDate(note.updatedAt),
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.black45,
-                  ),
+                // Footer
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Text(
+                      _formatDate(note.updatedAt),
+                      style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                    ),
+                    const Spacer(),
+                    if (note.isSyncEnabled) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Iconsax.cloud,
+                              size: 12,
+                              color: AppTheme.primaryColor,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Cloud',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: AppTheme.primaryColor,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ] else ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Iconsax.mobile,
+                              size: 12,
+                              color: Colors.grey[600],
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Local',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (note.syncStatus == 'pending') ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.warningColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.sync_rounded,
+                              size: 12,
+                              color: AppTheme.warningColor,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Syncing',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: AppTheme.warningColor,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
@@ -593,16 +875,92 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
+  Widget _buildIconButton({
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.5),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, size: 20, color: color),
+        ),
+      ),
+    );
+  }
+
   Widget _buildModernFAB(BuildContext context) {
     return Container(
-      height: 56,
-      width: 56,
+      height: 64,
+      width: 64,
       decoration: BoxDecoration(
         gradient: AppTheme.primaryGradient,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: AppTheme.primaryColor.withOpacity(0.3),
+            color: AppTheme.primaryColor.withOpacity(0.4),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            final notesBloc = context.read<NotesBloc>();
+            final authBloc = context.read<AuthBloc>();
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => MultiBlocProvider(
+                  providers: [
+                    BlocProvider.value(value: notesBloc),
+                    BlocProvider.value(value: authBloc),
+                  ],
+                  child: const RichNoteEditorScreen(),
+                ),
+              ),
+            );
+          },
+          borderRadius: BorderRadius.circular(20),
+          child: const Center(
+            child: Icon(Iconsax.edit, size: 28, color: Colors.white),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGridNoteCard(BuildContext context, note, int index) {
+    Color cardColor = Colors.white;
+    if (note.color != null) {
+      cardColor = Color(int.parse(note.color!)).withOpacity(0.1);
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: note.color != null
+              ? Color(int.parse(note.color!)).withOpacity(0.3)
+              : Colors.grey[200]!,
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: note.color != null
+                ? Color(int.parse(note.color!)).withOpacity(0.1)
+                : Colors.black.withOpacity(0.03),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -613,149 +971,110 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         child: InkWell(
           onTap: () {
             final notesBloc = context.read<NotesBloc>();
+            final authBloc = context.read<AuthBloc>();
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => BlocProvider.value(
-                  value: notesBloc,
-                  child: const NoteEditorScreen(),
+                builder: (context) => MultiBlocProvider(
+                  providers: [
+                    BlocProvider.value(value: notesBloc),
+                    BlocProvider.value(value: authBloc),
+                  ],
+                  child: RichNoteEditorScreen(note: note),
                 ),
               ),
             );
           },
           borderRadius: BorderRadius.circular(16),
-          child: const Center(
-            child: Icon(
-              Iconsax.add,
-              size: 28,
-              color: Colors.white,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGridNoteCard(BuildContext context, note, int index) {
-    final colors = [
-      [const Color(0xFFFFE5E5), const Color(0xFFFFCCCC)],
-      [const Color(0xFFE5F3FF), const Color(0xFFCCE7FF)],
-      [const Color(0xFFFFF3E5), const Color(0xFFFFE7CC)],
-      [const Color(0xFFE5FFE5), const Color(0xFFCCFFCC)],
-      [const Color(0xFFF3E5FF), const Color(0xFFE7CCFF)],
-    ];
-    final colorPair = colors[index % colors.length];
-
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: colorPair,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: colorPair[0].withOpacity(0.4),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            final notesBloc = context.read<NotesBloc>();
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => BlocProvider.value(
-                  value: notesBloc,
-                  child: NoteEditorScreen(note: note),
-                ),
-              ),
-            );
-          },
-          borderRadius: BorderRadius.circular(20),
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Header
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    if (note.syncStatus == 'pending')
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: AppTheme.warningColor.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
+                    if (note.isPinned)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
                         child: Icon(
-                          Icons.sync_rounded,
+                          Icons.push_pin,
                           size: 14,
-                          color: AppTheme.warningColor,
+                          color: AppTheme.primaryColor,
                         ),
                       ),
-                    const Spacer(),
-                    GestureDetector(
-                      onTap: () => _showDeleteDialog(context, note.id),
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(
-                          Icons.delete_outline_rounded,
-                          size: 16,
-                          color: Colors.red[400],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
+                    Expanded(
+                      child: Text(
                         note.title.isEmpty ? 'Untitled' : note.title,
                         style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
                           color: Colors.black87,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      if (note.content.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Expanded(
-                          child: Text(
-                            note.content,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.black54,
-                              height: 1.4,
-                            ),
-                            maxLines: 4,
-                            overflow: TextOverflow.ellipsis,
+                    ),
+                    if (note.isFavorite)
+                      Icon(
+                        Iconsax.star_15,
+                        size: 14,
+                        color: AppTheme.warningColor,
+                      ),
+                  ],
+                ),
+                // Tags
+                if (note.tags.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: note.tags.take(2).map((tag) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          tag,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: AppTheme.primaryColor,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                      ],
-                    ],
+                      );
+                    }).toList(),
                   ),
-                ),
+                ],
+                // Content
+                if (note.content.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: Text(
+                      _extractPlainText(note.content),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey[600],
+                        height: 1.4,
+                      ),
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+                const Spacer(),
+                // Footer
                 const SizedBox(height: 8),
                 Text(
                   _formatDate(note.updatedAt),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
-                    color: Colors.black45,
+                    color: Colors.grey[500],
                   ),
                 ),
               ],
@@ -772,9 +1091,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         content: Text(message),
         backgroundColor: color,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.all(16),
       ),
     );
@@ -799,9 +1116,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Delete Note'),
         content: const Text('Are you sure you want to delete this note?'),
         actions: [
@@ -811,12 +1126,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ),
           TextButton(
             onPressed: () {
-              context.read<NotesBloc>().add(NotesDeleteRequested(noteId: noteId));
+              context.read<NotesBloc>().add(
+                NotesDeleteRequested(noteId: noteId),
+              );
               Navigator.pop(dialogContext);
             },
-            style: TextButton.styleFrom(
-              foregroundColor: AppTheme.errorColor,
-            ),
+            style: TextButton.styleFrom(foregroundColor: AppTheme.errorColor),
             child: const Text('Delete'),
           ),
         ],
@@ -828,9 +1143,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Logout'),
         content: const Text('Are you sure you want to logout?'),
         actions: [
@@ -843,9 +1156,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               context.read<AuthBloc>().add(AuthSignOutRequested());
               Navigator.pop(dialogContext);
             },
-            style: TextButton.styleFrom(
-              foregroundColor: AppTheme.errorColor,
-            ),
+            style: TextButton.styleFrom(foregroundColor: AppTheme.errorColor),
             child: const Text('Logout'),
           ),
         ],
@@ -854,19 +1165,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildChecklistPreview(List<Map<String, dynamic>> items) {
-    final completedCount = items.where((item) => item['isChecked'] == true).length;
+    final completedCount = items
+        .where((item) => item['isChecked'] == true)
+        .length;
     final totalCount = items.length;
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(
-              Iconsax.task_square,
-              size: 16,
-              color: Colors.black54,
-            ),
+            Icon(Iconsax.task_square, size: 16, color: Colors.black54),
             const SizedBox(width: 6),
             Text(
               '$completedCount/$totalCount completed',
@@ -921,6 +1230,599 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ),
           ),
       ],
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return SliverToBoxAdapter(
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.grey[50],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey[200]!),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Iconsax.search_normal_1,
+              color: Colors.grey[400],
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: 'Search notes, tags...',
+                  hintStyle: TextStyle(
+                    color: Colors.grey[400],
+                    fontSize: 15,
+                  ),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                style: const TextStyle(fontSize: 15),
+                onChanged: (value) {
+                  setState(() {
+                    _searchQuery = value;
+                  });
+                },
+              ),
+            ),
+            if (_searchQuery.isNotEmpty)
+              IconButton(
+                icon: Icon(Icons.clear, size: 20, color: Colors.grey[600]),
+                onPressed: () {
+                  setState(() {
+                    _searchQuery = '';
+                    _searchController.clear();
+                  });
+                },
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showNoteOptions(BuildContext context, NoteModel note) {
+    final notesBloc = context.read<NotesBloc>();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => BlocProvider.value(
+        value: notesBloc,
+        child: _NoteOptionsSheet(note: note),
+      ),
+    );
+  }
+
+  void _showArchivedNotes(BuildContext context) {
+    final notesBloc = context.read<NotesBloc>();
+    final authBloc = context.read<AuthBloc>();
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => MultiBlocProvider(
+          providers: [
+            BlocProvider.value(value: notesBloc),
+            BlocProvider.value(value: authBloc),
+          ],
+          child: const ArchivedNotesScreen(),
+        ),
+      ),
+    );
+  }
+}
+
+// Note Options Bottom Sheet
+class _NoteOptionsSheet extends StatelessWidget {
+  final NoteModel note;
+
+  const _NoteOptionsSheet({required this.note});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 20,
+            offset: const Offset(0, -5),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Handle bar
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 20),
+          // Title
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Iconsax.setting_2,
+                  size: 20,
+                  color: AppTheme.primaryColor,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Note Options',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          // Color Picker
+          _buildColorPicker(context),
+          const SizedBox(height: 20),
+          // Tags
+          _buildTagsSection(context),
+          const SizedBox(height: 20),
+          // Actions
+          _buildActionButton(
+            context,
+            icon: note.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+            label: note.isPinned ? 'Unpin Note' : 'Pin Note',
+            onTap: () {
+              context.read<NotesBloc>().add(
+                NotesTogglePinRequested(noteId: note.id),
+              );
+              Navigator.pop(context);
+            },
+          ),
+          const SizedBox(height: 10),
+          BlocBuilder<AuthBloc, AuthState>(
+            builder: (context, authState) {
+              final isAuthenticated = authState is AuthAuthenticated && !authState.isGuest;
+              
+              if (!isAuthenticated) {
+                return const SizedBox.shrink();
+              }
+              
+              return Column(
+                children: [
+                  _buildActionButton(
+                    context,
+                    icon: note.isSyncEnabled ? Iconsax.cloud_change : Iconsax.cloud_add,
+                    label: note.isSyncEnabled ? 'Disable Cloud Sync' : 'Sync to Cloud',
+                    onTap: () {
+                      context.read<NotesBloc>().add(
+                        NotesToggleSyncRequested(
+                          noteId: note.id,
+                          enableSync: !note.isSyncEnabled,
+                        ),
+                      );
+                      Navigator.pop(context);
+                      
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            note.isSyncEnabled 
+                              ? 'Note will stay local only' 
+                              : 'Note synced to cloud',
+                          ),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                ],
+              );
+            },
+          ),
+          _buildActionButton(
+            context,
+            icon: note.isArchived ? Iconsax.archive_minus : Iconsax.archive_add,
+            label: note.isArchived ? 'Unarchive' : 'Archive',
+            onTap: () {
+              context.read<NotesBloc>().add(
+                NotesToggleArchiveRequested(noteId: note.id),
+              );
+              Navigator.pop(context);
+            },
+          ),
+          const SizedBox(height: 10),
+          _buildActionButton(
+            context,
+            icon: Iconsax.trash,
+            label: 'Delete',
+            isDestructive: true,
+            onTap: () {
+              Navigator.pop(context);
+              _showDeleteDialog(context, note.id);
+            },
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildColorPicker(BuildContext context) {
+    final colors = [
+      null, // No color
+      '0xFFEF5350', // Red
+      '0xFFEC407A', // Pink
+      '0xFFAB47BC', // Purple
+      '0xFF5C6BC0', // Indigo
+      '0xFF42A5F5', // Blue
+      '0xFF26A69A', // Teal
+      '0xFF66BB6A', // Green
+      '0xFFFFEE58', // Yellow
+      '0xFFFF7043', // Orange
+      '0xFF8D6E63', // Brown
+      '0xFFBDBDBD', // Gray
+      '0xFF9E9E9E', // Grey
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Color',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[700],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: colors.map((colorStr) {
+            final isSelected = note.color == colorStr;
+            return GestureDetector(
+              onTap: () {
+                context.read<NotesBloc>().add(
+                  NotesUpdateColorRequested(noteId: note.id, color: colorStr),
+                );
+                // Close the sheet after a short delay to show selection
+                Future.delayed(const Duration(milliseconds: 300), () {
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                  }
+                });
+              },
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: colorStr != null
+                      ? Color(int.parse(colorStr))
+                      : Colors.grey[200],
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isSelected
+                        ? AppTheme.primaryColor
+                        : Colors.grey[300]!,
+                    width: isSelected ? 3 : 1,
+                  ),
+                ),
+                child: colorStr == null
+                    ? Icon(
+                        Iconsax.close_circle,
+                        size: 20,
+                        color: Colors.grey[600],
+                      )
+                    : isSelected
+                    ? const Icon(Icons.check, color: Colors.white, size: 20)
+                    : null,
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTagsSection(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Tags',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () => _showAddTagDialog(context),
+              icon: const Icon(Iconsax.add, size: 16),
+              label: const Text('Add'),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (note.tags.isEmpty)
+          Text(
+            'No tags yet',
+            style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+          )
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: note.tags.map((tag) {
+              return Chip(
+                label: Text(tag),
+                deleteIcon: const Icon(Icons.close, size: 16),
+                onDeleted: () {
+                  context.read<NotesBloc>().add(
+                    NotesRemoveTagRequested(noteId: note.id, tag: tag),
+                  );
+                },
+                backgroundColor: AppTheme.primaryColor.withOpacity(0.1),
+                side: BorderSide(color: AppTheme.primaryColor.withOpacity(0.3)),
+                labelStyle: TextStyle(
+                  color: AppTheme.primaryColor,
+                  fontSize: 12,
+                ),
+              );
+            }).toList(),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildActionButton(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    bool isDestructive = false,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: isDestructive
+                ? Colors.red.withOpacity(0.08)
+                : Colors.grey[100],
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: isDestructive
+                      ? Colors.red.withOpacity(0.15)
+                      : AppTheme.primaryColor.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Icon(
+                  icon,
+                  color: isDestructive ? Colors.red : AppTheme.primaryColor,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: isDestructive ? Colors.red : Colors.black87,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showAddTagDialog(BuildContext context) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Add Tag'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: 'Enter tag name',
+            border: OutlineInputBorder(),
+          ),
+          textCapitalization: TextCapitalization.words,
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                context.read<NotesBloc>().add(
+                  NotesAddTagRequested(
+                    noteId: note.id,
+                    tag: controller.text.trim(),
+                  ),
+                );
+                Navigator.pop(dialogContext);
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteDialog(BuildContext context, String noteId) {
+    final authState = context.read<AuthBloc>().state;
+    final isAuthenticated = authState is AuthAuthenticated && !authState.isGuest;
+    final notesBloc = context.read<NotesBloc>();
+    final note = context.read<NotesBloc>().state is NotesLoaded
+        ? (context.read<NotesBloc>().state as NotesLoaded)
+            .notes
+            .firstWhere((n) => n.id == noteId)
+        : null;
+    final isSynced = note?.isSyncEnabled ?? false;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Delete Note?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Choose how you want to delete this note:',
+            ),
+            if (isAuthenticated && isSynced) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'This note is synced to cloud',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.blue[700],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          if (isAuthenticated && isSynced) ...[
+            TextButton(
+              onPressed: () {
+                notesBloc.add(
+                  NotesDeleteWithOptionsRequested(
+                    noteId: noteId,
+                    deleteFromCloud: false,
+                  ),
+                );
+                Navigator.pop(dialogContext);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text('Note deleted locally. Cloud copy remains.'),
+                    backgroundColor: AppTheme.primaryColor,
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                );
+              },
+              child: const Text('Local Only'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                notesBloc.add(
+                  NotesDeleteWithOptionsRequested(
+                    noteId: noteId,
+                    deleteFromCloud: true,
+                  ),
+                );
+                Navigator.pop(dialogContext);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text('Note deleted from everywhere'),
+                    backgroundColor: Colors.red,
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Delete Everywhere'),
+            ),
+          ] else
+            ElevatedButton(
+              onPressed: () {
+                notesBloc.add(
+                  NotesDeleteWithOptionsRequested(
+                    noteId: noteId,
+                    deleteFromCloud: false,
+                  ),
+                );
+                Navigator.pop(dialogContext);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Delete'),
+            ),
+        ],
+      ),
     );
   }
 }

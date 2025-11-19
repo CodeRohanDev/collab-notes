@@ -62,6 +62,9 @@ class NoteModel extends Equatable {
   @HiveField(18)
   final List<Map<String, dynamic>> checklistItems;
 
+  @HiveField(19)
+  final bool isSyncEnabled; // Whether this note should sync to cloud
+
   const NoteModel({
     required this.id,
     required this.title,
@@ -82,6 +85,7 @@ class NoteModel extends Equatable {
     this.isFavorite = false,
     this.noteType = 'note',
     this.checklistItems = const [],
+    this.isSyncEnabled = false, // Default to local-only
   });
 
   NoteModel copyWith({
@@ -104,6 +108,7 @@ class NoteModel extends Equatable {
     bool? isFavorite,
     String? noteType,
     List<Map<String, dynamic>>? checklistItems,
+    bool? isSyncEnabled,
   }) {
     return NoteModel(
       id: id ?? this.id,
@@ -125,6 +130,7 @@ class NoteModel extends Equatable {
       isFavorite: isFavorite ?? this.isFavorite,
       noteType: noteType ?? this.noteType,
       checklistItems: checklistItems ?? this.checklistItems,
+      isSyncEnabled: isSyncEnabled ?? this.isSyncEnabled,
     );
   }
 
@@ -148,6 +154,7 @@ class NoteModel extends Equatable {
       'isFavorite': isFavorite,
       'noteType': noteType,
       'checklistItems': checklistItems,
+      'isSyncEnabled': isSyncEnabled,
     };
   }
 
@@ -172,6 +179,7 @@ class NoteModel extends Equatable {
       isFavorite: json['isFavorite'] as bool? ?? false,
       noteType: json['noteType'] as String? ?? 'note',
       checklistItems: List<Map<String, dynamic>>.from(json['checklistItems'] ?? []),
+      isSyncEnabled: json['isSyncEnabled'] as bool? ?? false,
     );
   }
 
@@ -196,5 +204,6 @@ class NoteModel extends Equatable {
         isFavorite,
         noteType,
         checklistItems,
+        isSyncEnabled,
       ];
 }

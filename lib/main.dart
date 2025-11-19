@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:flutter_quill/flutter_quill.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'firebase_options.dart';
 import 'data/models/note_model.dart';
 import 'data/models/user_model.dart';
@@ -35,8 +37,7 @@ void main() async {
   try {
     notesBox = await Hive.openBox<NoteModel>(AppConstants.hiveBoxNotes);
   } catch (e) {
-    print('Error opening notes box, deleting old data: $e');
-    // Delete the corrupted box
+    // Delete the corrupted box if there's an error
     await Hive.deleteBoxFromDisk(AppConstants.hiveBoxNotes);
     // Open a fresh box
     notesBox = await Hive.openBox<NoteModel>(AppConstants.hiveBoxNotes);
@@ -114,6 +115,13 @@ class _MyAppState extends State<MyApp> {
           title: 'CollabNotes',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,
+          localizationsDelegates: const [
+            FlutterQuillLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: FlutterQuillLocalizations.supportedLocales,
           home: _showSplash
               ? SplashScreen(onInitComplete: _onSplashComplete)
               : _showOnboarding

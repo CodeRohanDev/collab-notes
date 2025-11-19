@@ -104,7 +104,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     AuthContinueAsGuestRequested event,
     Emitter<AuthState> emit,
   ) async {
-    final guestId = const Uuid().v4();
+    // Reuse existing guest ID if available, otherwise create new one
+    final guestId = _preferencesService.guestUserId ?? const Uuid().v4();
     await _preferencesService.setGuestMode(true);
     await _preferencesService.setGuestUserId(guestId);
     
@@ -133,7 +134,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     AuthMigrateGuestDataRequested event,
     Emitter<AuthState> emit,
   ) async {
-    // This will be handled by NotesRepository to migrate guest notes
-    // to the authenticated user's account
+    // The actual migration will be handled by NotesRepository
+    // This event is just a signal that migration should happen
   }
 }
