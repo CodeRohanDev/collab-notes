@@ -13,9 +13,14 @@ service cloud.firestore {
       return request.auth.uid == userId;
     }
     
-    // Helper function to check if user is a collaborator
-    function isCollaborator(collaborators) {
-      return request.auth.uid in collaborators;
+    // Helper function to check if user is a collaborator (by email)
+    function isCollaboratorByEmail(collaborators) {
+      return request.auth.token.email in collaborators;
+    }
+    
+    // Helper function to check if user has access to note
+    function hasNoteAccess(noteData) {
+      return isOwner(noteData.ownerId) || isCollaboratorByEmail(noteData.collaborators);
     }
     
     // Users collection
@@ -26,19 +31,13 @@ service cloud.firestore {
     
     // Notes collection
     match /notes/{noteId} {
-      allow read: if isAuthenticated() && 
-                     (isOwner(resource.data.ownerId) || 
-                      isCollaborator(resource.data.collaborators));
+      allow read: if isAuthenticated() && hasNoteAccess(resource.data);
       
-      allow create: if isAuthenticated() && 
-                       isOwner(request.resource.data.ownerId);
+      allow create: if isAuthenticated() && isOwner(request.resource.data.ownerId);
       
-      allow update: if isAuthenticated() && 
-                       (isOwner(resource.data.ownerId) || 
-                        isCollaborator(resource.data.collaborators));
+      allow update: if isAuthenticated() && hasNoteAccess(resource.data);
       
-      allow delete: if isAuthenticated() && 
-                       isOwner(resource.data.ownerId);
+      allow delete: if isAuthenticated() && isOwner(resource.data.ownerId);
       
       // Subcollections for revisions and comments
       match /revisions/{revisionId} {
@@ -49,6 +48,18 @@ service cloud.firestore {
       match /comments/{commentId} {
         allow read: if isAuthenticated();
         allow write: if isAuthenticated();
+      }
+      
+      // Presence subcollection for real-time collaboration
+      match /presence/{presenceUserId} {
+        // Anyone with access to the note can read all presence
+        allow read: if isAuthenticated();
+        
+        // Users can only write their own presence
+        allow write: if isAuthenticated() && request.auth.uid == presenceUserId;
+        
+        // Allow delete for cleanup
+        allow delete: if isAuthenticated() && request.auth.uid == presenceUserId;
       }
     }
     

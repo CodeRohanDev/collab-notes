@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Deep Links - CollabNotes</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .test-section h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .test-link {
+            display: block;
+            padding: 12px 20px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 10px 0;
+            transition: background 0.3s;
+        }
+
+        .test-link:hover {
+            background: #5568d3;
+        }
+
+        .code {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 6px;
+            margin: 10px 0;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+
+        button:hover {
+            background: #5568d3;
+        }
+
+        .input-group {
+            margin: 15px 0;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .results {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔗 Deep Link Testing Tool</h1>
+        <p class="subtitle">Test your CollabNotes deep linking setup</p>
+
+        <!-- Test 1: Basic Link Test -->
+        <div class="test-section">
+            <h2>1. Test Basic Deep Link</h2>
+            <p>Click this link to test if the app opens:</p>
+            <a href="https://collabnotes.hostspica.com/note/test123" class="test-link">
+                Open Test Note (test123)
+            </a>
+            <p style="margin-top: 10px; color: #666; font-size: 14px;">
+                ✓ If app is installed: Should open the app<br>
+                ✓ If app is not installed: Should show landing page
+            </p>
+        </div>
+
+        <!-- Test 2: Custom Note ID -->
+        <div class="test-section">
+            <h2>2. Test Custom Note ID</h2>
+            <div class="input-group">
+                <label>Enter Note ID:</label>
+                <input type="text" id="customNoteId" placeholder="e.g., abc123xyz" value="test456">
+            </div>
+            <button onclick="testCustomLink()">Generate & Test Link</button>
+            <div id="customLinkResult" class="results"></div>
+        </div>
+
+        <!-- Test 3: Verify .well-known Files -->
+        <div class="test-section">
+            <h2>3. Verify Configuration Files</h2>
+            <button onclick="checkAssetLinks()">Check Android (assetlinks.json)</button>
+            <button onclick="checkAppleLinks()">Check iOS (apple-app-site-association)</button>
+            <div id="verifyResults" class="results"></div>
+        </div>
+
+        <!-- Test 4: Device Info -->
+        <div class="test-section">
+            <h2>4. Device Information</h2>
+            <div id="deviceInfo"></div>
+        </div>
+
+        <!-- Test 5: ADB Command -->
+        <div class="test-section">
+            <h2>5. ADB Test Command</h2>
+            <p>Use this command to test on Android via ADB:</p>
+            <div class="code" id="adbCommand">
+                adb shell am start -W -a android.intent.action.VIEW -d "https://collabnotes.hostspica.com/note/test123" com.hostspica.collabnotes
+            </div>
+            <button onclick="copyAdbCommand()">Copy Command</button>
+        </div>
+    </div>
+
+    <script>
+        // Display device info
+        function displayDeviceInfo() {
+            const ua = navigator.userAgent;
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+            const isAndroid = /Android/i.test(ua);
+            const isIOS = /iPhone|iPad|iPod/i.test(ua);
+            
+            const info = `
+                <div class="status info">
+                    <strong>User Agent:</strong><br>
+                    ${ua}<br><br>
+                    <strong>Device Type:</strong> ${isMobile ? 'Mobile' : 'Desktop'}<br>
+                    <strong>Platform:</strong> ${isAndroid ? 'Android' : isIOS ? 'iOS' : 'Other'}<br>
+                    <strong>Screen Size:</strong> ${window.screen.width}x${window.screen.height}
+                </div>
+            `;
+            
+            document.getElementById('deviceInfo').innerHTML = info;
+        }
+
+        // Test custom link
+        function testCustomLink() {
+            const noteId = document.getElementById('customNoteId').value.trim();
+            
+            if (!noteId) {
+                document.getElementById('customLinkResult').innerHTML = 
+                    '<div class="status error">Please enter a note ID</div>';
+                return;
+            }
+            
+            const link = `https://collabnotes.hostspica.com/note/${noteId}`;
+            
+            document.getElementById('customLinkResult').innerHTML = `
+                <div class="status success">
+                    <strong>Generated Link:</strong><br>
+                    <a href="${link}" target="_blank">${link}</a>
+                </div>
+            `;
+            
+            // Try to open the link
+            window.open(link, '_blank');
+        }
+
+        // Check assetlinks.json
+        async function checkAssetLinks() {
+            const url = 'https://collabnotes.hostspica.com/.well-known/assetlinks.json';
+            const resultsDiv = document.getElementById('verifyResults');
+            
+            resultsDiv.innerHTML = '<div class="status info">Checking Android configuration...</div>';
+            
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultsDiv.innerHTML = `
+                        <div class="status success">
+                            <strong>✓ Android Configuration Found</strong><br>
+                            Package: ${data[0]?.target?.package_name || 'Not found'}<br>
+                            SHA-256: ${data[0]?.target?.sha256_cert_fingerprints?.[0] || 'Not found'}
+                        </div>
+                        <div class="code">${JSON.stringify(data, null, 2)}</div>
+                    `;
+                } else {
+                    resultsDiv.innerHTML = `
+                        <div class="status error">
+                            <strong>✗ Error ${response.status}</strong><br>
+                            Could not load assetlinks.json
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = `
+                    <div class="status error">
+                        <strong>✗ Error</strong><br>
+                        ${error.message}<br><br>
+                        Make sure the file is uploaded to:<br>
+                        ${url}
+                    </div>
+                `;
+            }
+        }
+
+        // Check apple-app-site-association
+        async function checkAppleLinks() {
+            const url = 'https://collabnotes.hostspica.com/.well-known/apple-app-site-association';
+            const resultsDiv = document.getElementById('verifyResults');
+            
+            resultsDiv.innerHTML = '<div class="status info">Checking iOS configuration...</div>';
+            
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultsDiv.innerHTML = `
+                        <div class="status success">
+                            <strong>✓ iOS Configuration Found</strong><br>
+                            App ID: ${data.applinks?.details?.[0]?.appID || 'Not found'}<br>
+                            Paths: ${data.applinks?.details?.[0]?.paths?.join(', ') || 'Not found'}
+                        </div>
+                        <div class="code">${JSON.stringify(data, null, 2)}</div>
+                    `;
+                } else {
+                    resultsDiv.innerHTML = `
+                        <div class="status error">
+                            <strong>✗ Error ${response.status}</strong><br>
+                            Could not load apple-app-site-association
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = `
+                    <div class="status error">
+                        <strong>✗ Error</strong><br>
+                        ${error.message}<br><br>
+                        Make sure the file is uploaded to:<br>
+                        ${url}
+                    </div>
+                `;
+            }
+        }
+
+        // Copy ADB command
+        function copyAdbCommand() {
+            const command = document.getElementById('adbCommand').textContent;
+            navigator.clipboard.writeText(command).then(() => {
+                alert('Command copied to clipboard!');
+            });
+        }
+
+        // Initialize
+        displayDeviceInfo();
+    </script>
+</body>
+</html>

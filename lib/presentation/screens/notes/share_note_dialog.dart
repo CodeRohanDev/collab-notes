@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:iconsax/iconsax.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../../data/models/note_model.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../bloc/notes/notes_bloc.dart';
@@ -70,9 +71,24 @@ class _ShareNoteDialogState extends State<ShareNoteDialog> {
   }
 
   void _copyShareLink() {
-    final link = 'https://collabnotes.app/note/${widget.note.id}';
+    final link = 'https://collabnotes.hostspica.com/note/${widget.note.id}';
     Clipboard.setData(ClipboardData(text: link));
     _showSnackBar('Link copied to clipboard!');
+  }
+
+  void _shareViaSystem() async {
+    final link = 'https://collabnotes.hostspica.com/note/${widget.note.id}';
+    final shareText = 'Collaborate with me on "${widget.note.title}" in CollabNotes!\n\nOpen: $link';
+    
+    // Using share_plus package
+    try {
+      await Share.share(
+        shareText,
+        subject: 'Collaborate on: ${widget.note.title}',
+      );
+    } catch (e) {
+      _showSnackBar('Failed to share: ${e.toString()}');
+    }
   }
 
   @override
@@ -166,7 +182,7 @@ class _ShareNoteDialogState extends State<ShareNoteDialog> {
                             border: Border.all(color: Colors.grey[300]!),
                           ),
                           child: Text(
-                            'collabnotes.app/note/${widget.note.id.substring(0, 8)}...',
+                            'collabnotes.hostspica.com/note/${widget.note.id.substring(0, 8)}...',
                             style: TextStyle(
                               color: Colors.grey[600],
                               fontSize: 14,
@@ -182,6 +198,23 @@ class _ShareNoteDialogState extends State<ShareNoteDialog> {
                         label: const Text('Copy'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.primaryColor,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton.icon(
+                        onPressed: _shareViaSystem,
+                        icon: const Icon(Iconsax.send_2, size: 18),
+                        label: const Text('Share'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.secondaryColor,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 16,

@@ -18,7 +18,9 @@ import 'presentation/screens/auth/welcome_screen.dart';
 import 'presentation/screens/home/home_screen.dart';
 import 'core/constants/app_constants.dart';
 import 'core/services/preferences_service.dart';
+import 'core/services/deep_link_handler.dart';
 import 'core/theme/app_theme.dart';
+import 'presentation/screens/notes/rich_note_editor_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -136,8 +138,149 @@ class _MyAppState extends State<MyApp> {
   }
 }
 
-class AppNavigator extends StatelessWidget {
+class AppNavigator extends StatefulWidget {
   const AppNavigator({super.key});
+
+  @override
+  State<AppNavigator> createState() => _AppNavigatorState();
+}
+
+class _AppNavigatorState extends State<AppNavigator> {
+  final _deepLinkHandler = DeepLinkHandler();
+  final _navigatorKey = GlobalKey<NavigatorState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _initDeepLinks();
+  }
+
+  void _initDeepLinks() {
+    _deepLinkHandler.init(
+      onNoteLink: (noteId) {
+        _handleNoteDeepLink(noteId);
+      },
+    );
+  }
+
+  void _handleNoteDeepLink(String noteId) {
+    // Wait a bit to ensure the app is fully initialized
+    Future.delayed(const Duration(milliseconds: 500), () {
+      final context = _navigatorKey.currentContext;
+      if (context == null) return;
+
+      // Get the note from repository
+      final notesRepository = context.read<NotesRepository>();
+      final note = notesRepository.getNoteById(noteId);
+
+      if (note != null) {
+        // Note exists locally, open it
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => RichNoteEditorScreen(note: note),
+          ),
+        );
+      } else {
+        // Note doesn't exist locally, show a dialog to add as collaborator
+        _showCollaborationDialog(context, noteId);
+      }
+    });
+  }
+
+  void _showCollaborationDialog(BuildContext context, String noteId) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: const Text('Join Collaboration'),
+        content: const Text(
+          'You\'ve been invited to collaborate on a note. Would you like to access it?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              
+              // Show loading indicator
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (context) => const Center(
+                  child: CircularProgressIndicator(),
+                ),
+              );
+
+              try {
+                // Accept collaboration and fetch the note
+                final notesBloc = context.read<NotesBloc>();
+                notesBloc.add(NotesAcceptCollaborationRequested(noteId: noteId));
+                
+                // Wait for the note to be fetched
+                await Future.delayed(const Duration(seconds: 2));
+                
+                if (!context.mounted) return;
+                
+                // Close loading dialog
+                Navigator.pop(context);
+                
+                // Get the note from repository
+                final notesRepository = context.read<NotesRepository>();
+                final note = notesRepository.getNoteById(noteId);
+                
+                if (note != null) {
+                  // Navigate to the note
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => RichNoteEditorScreen(note: note),
+                    ),
+                  );
+                  
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Successfully joined collaboration!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Failed to load note'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (!context.mounted) return;
+                
+                // Close loading dialog
+                Navigator.pop(context);
+                
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Error: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            child: const Text('Open'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _deepLinkHandler.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -149,7 +292,14 @@ class AppNavigator extends StatelessWidget {
               notesRepository: context.read<NotesRepository>(),
               userId: state.user.id,
             ),
-            child: const HomeScreen(),
+            child: Navigator(
+              key: _navigatorKey,
+              onGenerateRoute: (settings) {
+                return MaterialPageRoute(
+                  builder: (context) => const HomeScreen(),
+                );
+              },
+            ),
           );
         }
         return WelcomeScreen(

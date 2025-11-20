@@ -38,6 +38,8 @@ class NotesBloc extends Bloc<NotesEvent, NotesState> {
     on<NotesToggleSyncRequested>(_onToggleSync);
     on<NotesDeleteWithOptionsRequested>(_onDeleteWithOptions);
     on<NotesFetchCloudNotesRequested>(_onFetchCloudNotes);
+    on<NotesFetchSharedNoteRequested>(_onFetchSharedNote);
+    on<NotesAcceptCollaborationRequested>(_onAcceptCollaboration);
     
     // Load notes immediately after all handlers are registered
     add(NotesLoadRequested());
@@ -395,6 +397,40 @@ class NotesBloc extends Bloc<NotesEvent, NotesState> {
     try {
       // This will fetch cloud notes and merge with local
       // Only synced notes will be fetched
+      final notes = _notesRepository.getAllLocalNotes();
+      emit(NotesLoaded(notes: notes));
+    } catch (e) {
+      emit(NotesError(message: e.toString()));
+    }
+  }
+
+  void _onFetchSharedNote(
+    NotesFetchSharedNoteRequested event,
+    Emitter<NotesState> emit,
+  ) async {
+    emit(NotesLoading());
+    try {
+      final note = await _notesRepository.fetchSharedNote(event.noteId);
+      if (note == null) {
+        emit(const NotesError(message: 'Note not found'));
+        return;
+      }
+      
+      final notes = _notesRepository.getAllLocalNotes();
+      emit(NotesLoaded(notes: notes));
+    } catch (e) {
+      emit(NotesError(message: e.toString()));
+    }
+  }
+
+  void _onAcceptCollaboration(
+    NotesAcceptCollaborationRequested event,
+    Emitter<NotesState> emit,
+  ) async {
+    emit(NotesLoading());
+    try {
+      await _notesRepository.acceptCollaborationInvite(event.noteId);
+      
       final notes = _notesRepository.getAllLocalNotes();
       emit(NotesLoaded(notes: notes));
     } catch (e) {

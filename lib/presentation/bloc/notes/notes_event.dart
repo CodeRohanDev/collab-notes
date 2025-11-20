@@ -201,3 +201,23 @@ class NotesDeleteWithOptionsRequested extends NotesEvent {
 
 // Fetch cloud notes when logging in
 class NotesFetchCloudNotesRequested extends NotesEvent {}
+
+// Fetch shared note (for deep linking)
+class NotesFetchSharedNoteRequested extends NotesEvent {
+  final String noteId;
+
+  const NotesFetchSharedNoteRequested({required this.noteId});
+
+  @override
+  List<Object> get props => [noteId];
+}
+
+// Accept collaboration invite
+class NotesAcceptCollaborationRequested extends NotesEvent {
+  final String noteId;
+
+  const NotesAcceptCollaborationRequested({required this.noteId});
+
+  @override
+  List<Object> get props => [noteId];
+}

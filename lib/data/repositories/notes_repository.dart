@@ -308,4 +308,88 @@ class NotesRepository {
   int getLocalOnlyNotesCount() {
     return _notesBox.values.where((note) => !note.isSyncEnabled).length;
   }
+
+  // Fetch a shared note by ID (for deep linking)
+  Future<NoteModel?> fetchSharedNote(String noteId) async {
+    if (!isAuthenticated) {
+      throw Exception('Must be logged in to access shared notes');
+    }
+
+    try {
+      final user = _auth.currentUser!;
+      
+      // Fetch from Firestore
+      final doc = await _firestore
+          .collection(AppConstants.notesCollection)
+          .doc(noteId)
+          .get();
+      
+      if (!doc.exists) {
+        return null;
+      }
+
+      final note = NoteModel.fromJson(doc.data()!);
+
+      // Check if user has access (owner or collaborator)
+      if (note.ownerId != user.uid && !note.collaborators.contains(user.email)) {
+        throw Exception('You do not have access to this note');
+      }
+
+      // Save to local cache
+      await saveNoteLocally(note);
+
+      return note;
+    } catch (e) {
+      throw Exception('Failed to fetch shared note: $e');
+    }
+  }
+
+  // Accept collaboration invitation
+  Future<NoteModel> acceptCollaborationInvite(String noteId) async {
+    if (!isAuthenticated) {
+      throw Exception('Must be logged in to accept invitations');
+    }
+
+    try {
+      final user = _auth.currentUser!;
+      
+      // Fetch the note first
+      final doc = await _firestore
+          .collection(AppConstants.notesCollection)
+          .doc(noteId)
+          .get();
+      
+      if (!doc.exists) {
+        throw Exception('Note not found');
+      }
+
+      final note = NoteModel.fromJson(doc.data()!);
+
+      // Check if already a collaborator
+      if (note.collaborators.contains(user.email)) {
+        // Already a collaborator, just fetch and cache
+        await saveNoteLocally(note);
+        return note;
+      }
+
+      // Add current user as collaborator
+      await _firestore
+          .collection(AppConstants.notesCollection)
+          .doc(noteId)
+          .update({
+        'collaborators': FieldValue.arrayUnion([user.email]),
+      });
+
+      // Update local note
+      final updatedNote = note.copyWith(
+        collaborators: [...note.collaborators, user.email!],
+      );
+      
+      await saveNoteLocally(updatedNote);
+      
+      return updatedNote;
+    } catch (e) {
+      throw Exception('Failed to accept collaboration invite: $e');
+    }
+  }
 }

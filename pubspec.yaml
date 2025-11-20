@@ -78,6 +78,9 @@ dependencies:
   # Icons
   iconsax: ^0.0.8
   flutter_iconpicker: ^3.2.4
+  
+  # Deep Linking
+  app_links: ^6.3.2
 
 dev_dependencies:
   flutter_test:

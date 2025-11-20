@@ -1,0 +1,147 @@
+═══════════════════════════════════════════════════════════════
+  COLLABNOTES DEEP LINKING SETUP CHECKLIST
+═══════════════════════════════════════════════════════════════
+
+STEP 1: GET SHA-256 FINGERPRINT
+═══════════════════════════════════════════════════════════════
+[ ] Run: get_sha256.bat
+[ ] Copy the SHA256 value
+[ ] Keep it handy for next step
+
+STEP 2: UPDATE CONFIGURATION FILES
+═══════════════════════════════════════════════════════════════
+[ ] Open: .well-known/assetlinks.json
+[ ] Replace: YOUR_SHA256_FINGERPRINT_HERE
+[ ] Paste: Your SHA256 value
+[ ] Save file
+
+STEP 3: PREPARE FILES FOR UPLOAD
+═══════════════════════════════════════════════════════════════
+Choose your landing page:
+[ ] note-redirect.html (for static hosting)
+    OR
+[ ] note.php (for PHP hosting)
+
+Files to upload:
+[ ] Landing page (note-redirect.html or note.php)
+[ ] .well-known/assetlinks.json
+[ ] .well-known/apple-app-site-association
+
+STEP 4: UPLOAD TO WEB SERVER
+═══════════════════════════════════════════════════════════════
+Upload to: https://collabnotes.hostspica.com
+
+[ ] Upload landing page to root directory
+[ ] Create .well-known folder
+[ ] Upload assetlinks.json to .well-known/
+[ ] Upload apple-app-site-association to .well-known/
+
+STEP 5: CONFIGURE WEB SERVER
+═══════════════════════════════════════════════════════════════
+Choose your server type:
+
+Apache (.htaccess):
+[ ] Create/edit .htaccess in root
+[ ] Add rewrite rule for /note/* routes
+[ ] Save and upload
+
+Nginx:
+[ ] Edit nginx configuration
+[ ] Add location block for /note/* routes
+[ ] Reload nginx
+
+PHP:
+[ ] Add rewrite rule to route /note/* to note.php
+[ ] Save configuration
+
+STEP 6: VERIFY UPLOAD
+═══════════════════════════════════════════════════════════════
+Test these URLs in browser:
+
+[ ] https://collabnotes.hostspica.com/note/test123
+    Expected: Landing page with "Open in App" button
+
+[ ] https://collabnotes.hostspica.com/.well-known/assetlinks.json
+    Expected: JSON with your package name and SHA-256
+
+[ ] https://collabnotes.hostspica.com/.well-known/apple-app-site-association
+    Expected: JSON with applinks configuration
+
+STEP 7: TEST ON DEVICE
+═══════════════════════════════════════════════════════════════
+Android Testing:
+[ ] Install app on Android device
+[ ] Open browser on device
+[ ] Visit: https://collabnotes.hostspica.com/note/test123
+[ ] Verify: App opens automatically OR landing page shows
+[ ] Test: Click "Open in App" button
+[ ] Verify: App opens
+
+Alternative Android Test (via ADB):
+[ ] Connect device via USB
+[ ] Run: adb shell am start -W -a android.intent.action.VIEW 
+         -d "https://collabnotes.hostspica.com/note/test123" 
+         com.hostspica.collabnotes
+[ ] Verify: App opens
+
+STEP 8: TEST SHARING FLOW
+═══════════════════════════════════════════════════════════════
+[ ] Device A: Create a note
+[ ] Device A: Share the note
+[ ] Device A: Copy share link
+[ ] Device B: Click share link
+[ ] Device B: Accept collaboration
+[ ] Device B: Verify note opens
+[ ] Device B: Make an edit
+[ ] Device A: Verify edit appears
+
+STEP 9: TROUBLESHOOTING (IF NEEDED)
+═══════════════════════════════════════════════════════════════
+If landing page shows 404:
+[ ] Check server rewrite rules
+[ ] Verify file permissions
+[ ] Check file path is correct
+
+If app doesn't open automatically:
+[ ] Wait 24 hours (Android caches verification)
+[ ] Clear app data
+[ ] Reinstall app
+[ ] Check SHA-256 is correct
+
+If "Access denied" error:
+[ ] Verify user is logged in
+[ ] Check user email matches invited email
+[ ] Verify note has sync enabled
+
+STEP 10: FINAL VERIFICATION
+═══════════════════════════════════════════════════════════════
+[ ] Landing page loads correctly
+[ ] .well-known files are accessible
+[ ] App opens from deep link on Android
+[ ] Sharing works between devices
+[ ] Collaboration syncs properly
+[ ] No errors in app logs
+
+OPTIONAL: ADVANCED TESTING
+═══════════════════════════════════════════════════════════════
+[ ] Upload test-deep-link.html for interactive testing
+[ ] Test with Google's Digital Asset Links tool
+[ ] Test with Apple's Universal Links validator
+[ ] Monitor Android logs: adb logcat | grep -i "deep"
+
+═══════════════════════════════════════════════════════════════
+  SETUP COMPLETE! 🎉
+═══════════════════════════════════════════════════════════════
+
+Notes:
+- Deep linking requires HTTPS (SSL certificate)
+- Android caches verification for 24 hours
+- Always test on real devices
+- Clear app data when testing changes
+
+Documentation:
+- Quick Guide: QUICK_SETUP_GUIDE.md
+- Full Guide: WEB_INTEGRATION_GUIDE.md
+- Features: SHARE_FUNCTIONALITY.md
+
+═══════════════════════════════════════════════════════════════

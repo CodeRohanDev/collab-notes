@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.hostspica.collabnotes",
+      "sha256_cert_fingerprints": [
+        "8D:CB:8B:DD:49:CA:3A:C3:E0:23:13:F2:42:9E:B5:86:5F:FD:5D:F9:A3:34:C9:65:9B:2E:AC:F1:A0:8D:4A:D4"
+      ]
+    }
+  }
+]

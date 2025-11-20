@@ -1,0 +1,333 @@
+═══════════════════════════════════════════════════════════════════════════════
+                    COLLABNOTES DEEP LINKING FLOW DIAGRAM
+═══════════════════════════════════════════════════════════════════════════════
+
+SCENARIO 1: USER WITH APP INSTALLED (MOBILE)
+═══════════════════════════════════════════════════════════════════════════════
+
+    User clicks link
+    https://collabnotes.hostspica.com/note/abc123
+            │
+            ▼
+    ┌───────────────────────┐
+    │   Mobile OS Checks    │
+    │  Is app installed?    │
+    └───────────────────────┘
+            │
+            ▼ YES
+    ┌───────────────────────┐
+    │  Verify Domain        │
+    │  (checks assetlinks)  │
+    └───────────────────────┘
+            │
+            ▼ VERIFIED
+    ┌───────────────────────┐
+    │   Open App Directly   │
+    │   (No browser opens)  │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  Deep Link Handler    │
+    │  Extracts note ID     │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  Show Dialog:         │
+    │  "Join Collaboration?"│
+    └───────────────────────┘
+            │
+            ▼ User taps "Open"
+    ┌───────────────────────┐
+    │  BLoC Event:          │
+    │  AcceptCollaboration  │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  Repository:          │
+    │  Fetch note from      │
+    │  Firestore            │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  Add user as          │
+    │  collaborator         │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  Save note locally    │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  Navigate to          │
+    │  Note Editor          │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  ✅ SUCCESS!          │
+    │  User can now edit    │
+    └───────────────────────┘
+
+
+SCENARIO 2: USER WITHOUT APP (MOBILE)
+═══════════════════════════════════════════════════════════════════════════════
+
+    User clicks link
+    https://collabnotes.hostspica.com/note/abc123
+            │
+            ▼
+    ┌───────────────────────┐
+    │   Mobile OS Checks    │
+    │  Is app installed?    │
+    └───────────────────────┘
+            │
+            ▼ NO
+    ┌───────────────────────┐
+    │   Open in Browser     │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  Web Server Routes    │
+    │  /note/abc123 →       │
+    │  note-redirect.html   │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  Landing Page Loads   │
+    │  - Shows app info     │
+    │  - Detects mobile     │
+    │  - Auto-tries to open │
+    └───────────────────────┘
+            │
+            ▼ App not found
+    ┌───────────────────────┐
+    │  Show Buttons:        │
+    │  - Open in App        │
+    │  - Download App       │
+    └───────────────────────┘
+            │
+            ▼ User taps "Download"
+    ┌───────────────────────┐
+    │  Redirect to          │
+    │  Google Play Store    │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  User installs app    │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  User clicks link     │
+    │  again                │
+    └───────────────────────┘
+            │
+            ▼
+    (Goes to SCENARIO 1)
+
+
+SCENARIO 3: DESKTOP USER
+═══════════════════════════════════════════════════════════════════════════════
+
+    User clicks link
+    https://collabnotes.hostspica.com/note/abc123
+            │
+            ▼
+    ┌───────────────────────┐
+    │   Open in Browser     │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  Web Server Routes    │
+    │  /note/abc123 →       │
+    │  note-redirect.html   │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  Landing Page Loads   │
+    │  - Shows app info     │
+    │  - Detects desktop    │
+    │  - Shows QR code      │
+    │  - Shows store links  │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  User scans QR or     │
+    │  opens on mobile      │
+    └───────────────────────┘
+            │
+            ▼
+    (Goes to SCENARIO 1 or 2)
+
+
+FILE STRUCTURE ON WEB SERVER
+═══════════════════════════════════════════════════════════════════════════════
+
+https://collabnotes.hostspica.com/
+│
+├── note-redirect.html          ← Landing page
+│
+├── .well-known/
+│   ├── assetlinks.json         ← Android verification
+│   └── apple-app-site-association  ← iOS verification
+│
+└── .htaccess (or nginx.conf)   ← Server configuration
+    Routes: /note/* → note-redirect.html
+
+
+ANDROID VERIFICATION PROCESS
+═══════════════════════════════════════════════════════════════════════════════
+
+    App installed on device
+            │
+            ▼
+    ┌───────────────────────┐
+    │  Android OS reads     │
+    │  AndroidManifest.xml  │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  Finds intent-filter  │
+    │  for domain:          │
+    │  collabnotes.         │
+    │  hostspica.com        │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  Fetches:             │
+    │  https://collabnotes. │
+    │  hostspica.com/       │
+    │  .well-known/         │
+    │  assetlinks.json      │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  Verifies:            │
+    │  - Package name       │
+    │  - SHA-256 matches    │
+    └───────────────────────┘
+            │
+            ▼ MATCH
+    ┌───────────────────────┐
+    │  ✅ Domain Verified   │
+    │  App can handle links │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  Cached for 24 hours  │
+    └───────────────────────┘
+
+
+COLLABORATION SYNC FLOW
+═══════════════════════════════════════════════════════════════════════════════
+
+    User A shares note
+            │
+            ▼
+    ┌───────────────────────┐
+    │  Generate share link  │
+    │  with note ID         │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  User B clicks link   │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  User B accepts       │
+    │  collaboration        │
+    └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────┐
+    │  Firestore:           │
+    │  Add User B email to  │
+    │  collaborators array  │
+    └───────────────────────┘
+            │
+            ├─────────────────┬─────────────────┐
+            ▼                 ▼                 ▼
+    ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
+    │  User A     │   │  User B     │   │  Firestore  │
+    │  Device     │   │  Device     │   │  (Cloud)    │
+    └─────────────┘   └─────────────┘   └─────────────┘
+            │                 │                 │
+            │◄────────────────┼────────────────►│
+            │   Real-time Sync via Firebase    │
+            │◄────────────────┼────────────────►│
+            │                 │                 │
+            ▼                 ▼                 ▼
+    Both users see changes in real-time
+
+
+TROUBLESHOOTING DECISION TREE
+═══════════════════════════════════════════════════════════════════════════════
+
+    Problem: Link shows 404
+            │
+            ▼
+    Is landing page uploaded?
+            │
+    ┌───────┴───────┐
+    │               │
+   NO              YES
+    │               │
+    ▼               ▼
+Upload it!    Are rewrite rules configured?
+                    │
+            ┌───────┴───────┐
+            │               │
+           NO              YES
+            │               │
+            ▼               ▼
+    Configure them!   Check file permissions
+
+
+    Problem: App doesn't open
+            │
+            ▼
+    Is app installed?
+            │
+    ┌───────┴───────┐
+    │               │
+   NO              YES
+    │               │
+    ▼               ▼
+Install it!   Is assetlinks.json accessible?
+                    │
+            ┌───────┴───────┐
+            │               │
+           NO              YES
+            │               │
+            ▼               ▼
+    Upload it!    Is SHA-256 correct?
+                        │
+                ┌───────┴───────┐
+                │               │
+               NO              YES
+                │               │
+                ▼               ▼
+        Update it!    Wait 24 hours for cache
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                              END OF DIAGRAM
+═══════════════════════════════════════════════════════════════════════════════
